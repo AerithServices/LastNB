@@ -2,6 +2,10 @@ import discord
 from discord.ext.commands import Bot
 import pkgutil
 from pathlib import Path
+import logging
+
+logging.getLogger("discord.client").setLevel(logging.ERROR)
+logging.getLogger("discord.client").setLevel(logging.ERROR)
 
 class Axron(Bot):
     def __init__(self):

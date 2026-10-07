@@ -1,7 +1,11 @@
 import asyncio
+import logging
 import time
 from typing import Dict, Optional, Callable, Any
 from collections import defaultdict
+
+
+logging.getLogger("discord.http").setLevel(logging.ERROR)
 
 
 class RateLimiter:
@@ -61,6 +65,7 @@ class RateLimiter:
                     retry_after = getattr(e, 'retry_after', 1.0)
                     self.handle_rate_limit(bucket, retry_after)
                     await asyncio.sleep(retry_after)
+                    print(f"rate limit hit for bucket {bucket}, retrying after {retry_after} seconds (attempt {attempt + 1}/{max_retries})")
                 else:
                     raise
             finally:
@@ -104,5 +109,5 @@ class BucketRateLimiter:
         pass
 
 
-rate_limiter = RateLimiter(max_concurrent=3, global_rate_limit=0.2)
+rate_limiter = RateLimiter(requests_per_second=45.0, max_burst=50)
 bucket_limiter = BucketRateLimiter()

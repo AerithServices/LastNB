@@ -1,35 +1,40 @@
 import discord
 from discord.ext.commands import Command
-from core.config import EMOJIS
+from src.core.config import EMOJIS
+from src.core.managers.usertypes import user_manager
 
 
 async def send_command_help(ctx, command: Command, premium: bool = False):
     description = command.help or command.description or "No description provided."
-    
+
     cooldown_obj = getattr(command, "cooldown", None)
     cooldown = cooldown_obj is not None
     cooldown_text = ""
     if cooldown:
-        cooldown_text = f"{cooldown_obj.per} seconds"
-    
+        base_per = cooldown_obj.per
+        user_type = user_manager.get_user_type(ctx.author.id)
+        if user_type == "premium":
+            base_per = base_per * 0.75
+        cooldown_text = f"{base_per:.0f} seconds"
+
     info_parts = []
     if premium:
         info_parts.append(f"{EMOJIS.warn} Is Premium")
     if cooldown:
         info_parts.append(f"{EMOJIS.cooldown} {cooldown_text}")
-    
+
     embed = discord.Embed(
         title=f"Command: {command.name}",
         description=f"{description}\n",
     )
-    
+
     if info_parts:
         embed.add_field(
             name="Information",
             value="\n".join(info_parts),
             inline=True,
         )
-    
+
     await ctx.send(embed=embed)
 
 
