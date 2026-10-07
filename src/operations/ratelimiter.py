@@ -5,30 +5,19 @@ from collections import defaultdict
 
 
 class RateLimiter:
-    def __init__(self, max_concurrent: int = 5, global_rate_limit: float = 0.1):
-        self.semaphore = asyncio.Semaphore(max_concurrent)
-        self.global_rate_limit = global_rate_limit
-        self.last_request: Dict[str, float] = defaultdict(float)
-        self.bucket_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-        self.global_lock = asyncio.Lock()
-        self.last_global_request = 0.0
+    def __init__(self, requests_per_second: float = 45.0, max_burst: int = 50):
+        self.requests_per_second = requests_per_second
+        self.min_interval = 1.0 / requests_per_second
+        self.max_burst = max_burst
+        self.tokens = float(max_burst)
+        self.last_update = time.monotonic()
+        self.lock = asyncio.Lock()
         self.bucket_reset_times: Dict[str, float] = {}
+        self.global_semaphore = asyncio.Semaphore(max_burst)
 
     async def acquire(self, bucket: str = "global") -> None:
-        await self.semaphore.acquire()
-        try:
-            await self._wait_for_bucket(bucket)
-            await self._wait_global()
-        except Exception:
-            self.semaphore.release()
-            raise
-
-    def release(self) -> None:
-        self.semaphore.release()
-
-    async def _wait_for_bucket(self, bucket: str) -> None:
-        lock = self.bucket_locks[bucket]
-        async with lock:
+        await self.global_semaphore.acquire()
+        async with self.lock:
             now = time.monotonic()
             
             if bucket in self.bucket_reset_times:
@@ -36,18 +25,20 @@ class RateLimiter:
                 if now < reset_time:
                     await asyncio.sleep(reset_time - now)
             
-            elapsed = now - self.last_request[bucket]
-            if elapsed < self.global_rate_limit:
-                await asyncio.sleep(self.global_rate_limit - elapsed)
-            self.last_request[bucket] = time.monotonic()
+            elapsed = now - self.last_update
+            self.tokens = min(self.max_burst, self.tokens + elapsed * self.requests_per_second)
+            
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+                self.last_update = now
+            else:
+                wait_time = (1.0 - self.tokens) / self.requests_per_second
+                self.tokens = 0.0
+                self.last_update = now + wait_time
+                await asyncio.sleep(wait_time)
 
-    async def _wait_global(self) -> None:
-        async with self.global_lock:
-            now = time.monotonic()
-            elapsed = now - self.last_global_request
-            if elapsed < self.global_rate_limit:
-                await asyncio.sleep(self.global_rate_limit - elapsed)
-            self.last_global_request = time.monotonic()
+    def release(self) -> None:
+        self.global_semaphore.release()
 
     def handle_rate_limit(self, bucket: str, retry_after: float) -> None:
         self.bucket_reset_times[bucket] = time.monotonic() + retry_after
@@ -70,7 +61,6 @@ class RateLimiter:
                     retry_after = getattr(e, 'retry_after', 1.0)
                     self.handle_rate_limit(bucket, retry_after)
                     await asyncio.sleep(retry_after)
-                    print(f"hit rate limit, retrying after {retry_after} seconds (attempt {attempt + 1}/{max_retries})")
                 else:
                     raise
             finally:
