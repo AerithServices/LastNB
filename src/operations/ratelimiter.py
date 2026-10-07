@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable, Any
 from collections import defaultdict
 
 
@@ -12,6 +12,7 @@ class RateLimiter:
         self.bucket_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.global_lock = asyncio.Lock()
         self.last_global_request = 0.0
+        self.bucket_reset_times: Dict[str, float] = {}
 
     async def acquire(self, bucket: str = "global") -> None:
         await self.semaphore.acquire()
@@ -29,6 +30,12 @@ class RateLimiter:
         lock = self.bucket_locks[bucket]
         async with lock:
             now = time.monotonic()
+            
+            if bucket in self.bucket_reset_times:
+                reset_time = self.bucket_reset_times[bucket]
+                if now < reset_time:
+                    await asyncio.sleep(reset_time - now)
+            
             elapsed = now - self.last_request[bucket]
             if elapsed < self.global_rate_limit:
                 await asyncio.sleep(self.global_rate_limit - elapsed)
@@ -41,6 +48,33 @@ class RateLimiter:
             if elapsed < self.global_rate_limit:
                 await asyncio.sleep(self.global_rate_limit - elapsed)
             self.last_global_request = time.monotonic()
+
+    def handle_rate_limit(self, bucket: str, retry_after: float) -> None:
+        self.bucket_reset_times[bucket] = time.monotonic() + retry_after
+
+    async def execute_with_retry(
+        self,
+        bucket: str,
+        func: Callable[..., Any],
+        *args,
+        max_retries: int = 3,
+        **kwargs
+    ) -> Any:
+        for attempt in range(max_retries):
+            await self.acquire(bucket)
+            try:
+                result = await func(*args, **kwargs)
+                return result
+            except Exception as e:
+                if hasattr(e, 'status') and e.status == 429:
+                    retry_after = getattr(e, 'retry_after', 1.0)
+                    self.handle_rate_limit(bucket, retry_after)
+                    await asyncio.sleep(retry_after)
+                else:
+                    raise
+            finally:
+                self.release()
+        raise Exception(f"Max retries exceeded for bucket {bucket}")
 
     async def __aenter__(self):
         await self.acquire()
