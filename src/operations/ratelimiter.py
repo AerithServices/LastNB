@@ -70,6 +70,7 @@ class RateLimiter:
                     retry_after = getattr(e, 'retry_after', 1.0)
                     self.handle_rate_limit(bucket, retry_after)
                     await asyncio.sleep(retry_after)
+                    print(f"hit rate limit, retrying after {retry_after} seconds (attempt {attempt + 1}/{max_retries})")
                 else:
                     raise
             finally:
