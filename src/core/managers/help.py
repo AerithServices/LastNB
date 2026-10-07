@@ -1,4 +1,5 @@
 import discord
+from discord.ext import commands
 from discord.ext.commands import Command
 from src.core.config import EMOJIS
 from src.core.managers.usertypes import user_manager
@@ -15,25 +16,47 @@ async def send_command_help(ctx, command: Command, premium: bool = False):
         user_type = user_manager.get_user_type(ctx.author.id)
         if user_type == "premium":
             base_per = base_per * 0.75
-        cooldown_text = f"{base_per:.0f} seconds"
+        
+        if base_per >= 3600:
+            cooldown_text = f"{base_per/3600:.0f} hours"
+        elif base_per >= 60:
+            cooldown_text = f"{base_per/60:.0f} minutes"
+        else:
+            cooldown_text = f"{base_per:.0f} seconds"
+        
+        bucket_type = getattr(cooldown_obj, 'bucket', None)
+        if bucket_type == commands.BucketType.guild:
+            cooldown_text += " **per-guild**"
+        elif bucket_type == commands.BucketType.user:
+            cooldown_text += " **per-user**"
+        elif bucket_type == commands.BucketType.channel:
+            cooldown_text += " **per-channel**"
+
+    cog_name = command.cog_name or "general"
+
+    aliases = command.aliases
+    aliases_text = ", ".join(aliases) if aliases else "None"
 
     info_parts = []
-    if premium:
-        info_parts.append(f"{EMOJIS.warn} Is Premium")
     if cooldown:
         info_parts.append(f"{EMOJIS.cooldown} {cooldown_text}")
+    if premium:
+        info_parts.append(f"{EMOJIS.warn} Is Premium command only")
 
     embed = discord.Embed(
         title=f"Command: {command.name}",
-        description=f"{description}\n",
+        description=description,
+    ).set_footer(
+        text=f"module: {cog_name}",
+    ).add_field(
+        name="Aliases",
+        value=aliases_text,
+        inline=True,
+    ).add_field(
+        name="Information",
+        value="\n".join(info_parts) if info_parts else "None",
+        inline=True,
     )
-
-    if info_parts:
-        embed.add_field(
-            name="Information",
-            value="\n".join(info_parts),
-            inline=True,
-        )
 
     await ctx.send(embed=embed)
 
